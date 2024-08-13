@@ -1,8 +1,9 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, render_template
 from io import BytesIO
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import zipfile
+from app2 import insert_file_to_db
 
 app = Flask(__name__)
 
@@ -12,9 +13,18 @@ def index():
 
 @app.route('/generate-certificates', methods=['POST'])
 def generate_certificates():
+    # Get the uploaded Excel file
     file = request.files['excel']
-    df = pd.read_excel(file)
-
+    
+    # Save Excel file to a buffer
+    excel_buffer = BytesIO()
+    file.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    # Upload the Excel file to the database
+    insert_file_to_db(excel_buffer.getvalue(), file.filename, 'excel')
+    
+    df = pd.read_excel(excel_buffer)
     certificates = []
 
     for name in df['Name']:  # Assuming the column with names is labeled 'Name'
@@ -39,16 +49,13 @@ def generate_certificates():
         img.save(buffer, format="PNG")
         buffer.seek(0)
         
-        certificates.append(buffer)
+        certificates.append((buffer.getvalue(), f'certificate_{name}.png'))
+    
+    # Upload each certificate to the database
+    for cert_data, cert_name in certificates:
+        insert_file_to_db(cert_data, cert_name, 'certificate')
 
-    # Create a ZIP file containing all certificates
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-        for idx, cert_buffer in enumerate(certificates):
-            zip_file.writestr(f'certificate_{idx + 1}.png', cert_buffer.getvalue())
-    zip_buffer.seek(0)
-
-    return send_file(zip_buffer, mimetype='application/zip', download_name='certificates.zip', as_attachment=True)
+    return "Certificates generated and uploaded to the database."
 
 if __name__ == '__main__':
     app.run(debug=True)
